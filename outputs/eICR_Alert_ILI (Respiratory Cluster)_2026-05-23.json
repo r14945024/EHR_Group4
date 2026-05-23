@@ -1,0 +1,47 @@
+{
+  "resourceType": "Bundle",
+  "id": "45953499-8357-44c6-8c90-87a15b125f1a",
+  "type": "document",
+  "timestamp": "2026-05-24T07:32:46.445439",
+  "identifier": {
+    "system": "http://healthit.gov/eicr",
+    "value": "EICR-45953499-8357-44c6-8c90-87a15b125f1a"
+  },
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:063b7d6a-b903-4755-95ea-a139ef26de0b",
+      "resource": {
+        "resourceType": "Composition",
+        "status": "final",
+        "type": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "55751-2",
+              "display": "Public Health Case Report"
+            }
+          ]
+        },
+        "subject": {
+          "display": "Population Cluster"
+        },
+        "date": "2026-05-23",
+        "author": [
+          {
+            "display": "Group 4 Analysis Engine"
+          }
+        ],
+        "title": "Automated Alert: ILI (Respiratory Cluster) Outbreak Detected",
+        "section": [
+          {
+            "title": "Outbreak Details",
+            "text": {
+              "status": "generated",
+              "div": "<div xmlns='http://www.w3.org/1999/xhtml'>Detected 50 cases of ILI (Respiratory Cluster) at Facility-B on 2026-05-23. Threshold breached.</div>"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
