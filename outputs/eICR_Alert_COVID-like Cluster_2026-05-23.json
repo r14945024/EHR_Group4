@@ -1,0 +1,47 @@
+{
+  "resourceType": "Bundle",
+  "id": "21ee6fe8-c362-4e00-8082-0a9d3ce71bc0",
+  "type": "document",
+  "timestamp": "2026-06-04T00:32:54.725758",
+  "identifier": {
+    "system": "http://healthit.gov/eicr",
+    "value": "EICR-21ee6fe8-c362-4e00-8082-0a9d3ce71bc0"
+  },
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:fdb8cd60-7542-427a-a472-4f89d67946c1",
+      "resource": {
+        "resourceType": "Composition",
+        "status": "final",
+        "type": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "55751-2",
+              "display": "Public Health Case Report"
+            }
+          ]
+        },
+        "subject": {
+          "display": "Population Cluster"
+        },
+        "date": "2026-05-23",
+        "author": [
+          {
+            "display": "Group 4 Analysis Engine"
+          }
+        ],
+        "title": "Automated Alert: COVID-like Cluster Outbreak Detected",
+        "section": [
+          {
+            "title": "Outbreak Details",
+            "text": {
+              "status": "generated",
+              "div": "<div xmlns='http://www.w3.org/1999/xhtml'>Detected 25 cases of COVID-like Cluster at Facility-B on 2026-05-23. Threshold breached.</div>"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
