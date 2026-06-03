@@ -2,7 +2,7 @@ import requests
 import json
 import base64
 
-FHIR_SERVER_URL = "http://localhost:8081/fhir"
+FHIR_SERVER_URL = "http://localhost:8081/fhir/fhir"
 
 def report_eicr_to_fhir(eicr_bundle, syndrome, date):
     """

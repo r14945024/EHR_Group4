@@ -1,15 +1,15 @@
 {
   "resourceType": "Bundle",
-  "id": "45953499-8357-44c6-8c90-87a15b125f1a",
+  "id": "44350e73-a8bf-4285-8ae5-48bea6588cf7",
   "type": "document",
-  "timestamp": "2026-05-24T07:32:46.445439",
+  "timestamp": "2026-06-03T21:19:52.457220",
   "identifier": {
     "system": "http://healthit.gov/eicr",
-    "value": "EICR-45953499-8357-44c6-8c90-87a15b125f1a"
+    "value": "EICR-44350e73-a8bf-4285-8ae5-48bea6588cf7"
   },
   "entry": [
     {
-      "fullUrl": "urn:uuid:063b7d6a-b903-4755-95ea-a139ef26de0b",
+      "fullUrl": "urn:uuid:d4f8a41e-2295-4c4b-a2dc-b4e150ed363c",
       "resource": {
         "resourceType": "Composition",
         "status": "final",
@@ -25,19 +25,19 @@
         "subject": {
           "display": "Population Cluster"
         },
-        "date": "2026-05-23",
+        "date": "2021-04-17",
         "author": [
           {
             "display": "Group 4 Analysis Engine"
           }
         ],
-        "title": "Automated Alert: ILI (Respiratory Cluster) Outbreak Detected",
+        "title": "Automated Alert: COVID-like Cluster Outbreak Detected",
         "section": [
           {
             "title": "Outbreak Details",
             "text": {
               "status": "generated",
-              "div": "<div xmlns='http://www.w3.org/1999/xhtml'>Detected 50 cases of ILI (Respiratory Cluster) at Facility-B on 2026-05-23. Threshold breached.</div>"
+              "div": "<div xmlns='http://www.w3.org/1999/xhtml'>Detected 2 cases of COVID-like Cluster at Facility-B on 2021-04-17. Threshold breached.</div>"
             }
           }
         ]

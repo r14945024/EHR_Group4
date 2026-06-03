@@ -2,6 +2,8 @@ import pandas as pd
 import json
 import matplotlib.pyplot as plt
 from datetime import datetime
+from generate_eicr import generate_eicr
+from report_eicr_to_fhir import report_eicr_to_fhir
 
 def load_ndjson(file_path):
     data = []
@@ -14,66 +16,162 @@ def process_data(file_path):
     # Load NDJSON data
     raw_data = load_ndjson(file_path)
     
-    # Let's simulate processing separate resource types
-    observations = [r for r in raw_data if r.get('resourceType') == 'Observation']
-    obs_df = pd.DataFrame(observations)
-    
-    # Normalize Dates
-    if not obs_df.empty:
-        obs_df['date'] = pd.to_datetime(obs_df['effectiveDateTime']).dt.date
-        
-        # Extract Facility and Zip Code safely
-        if 'device' in obs_df.columns:
-            obs_df['facility'] = obs_df['device'].apply(lambda x: x.get('display') if isinstance(x, dict) else 'Unknown')
-        else:
-            obs_df['facility'] = 'Unknown'
-            
-        if 'extension' in obs_df.columns:
-            obs_df['zip_code'] = obs_df['extension'].apply(lambda x: x[0].get('valueString') if isinstance(x, list) and len(x) > 0 else 'Unknown')
-        else:
-            obs_df['zip_code'] = 'Unknown'
-    
-    # NSSP Mapping: Identify ILI (Influenza-Like Illness)
-    if obs_df.empty:
-        return pd.DataFrame(columns=['date', 'total_visits', 'ili_cases', 'is_anomaly', 'facility', 'zip_code'])
+    # 1. Build a Patient-to-Zip lookup map
+    patient_zip_map = {}
+    for r in raw_data:
+        if r.get('resourceType') == 'Patient':
+            p_id = r.get('id')
+            addresses = r.get('address', [])
+            if addresses and isinstance(addresses[0], dict):
+                patient_zip_map[f"Patient/{p_id}"] = addresses[0].get('postalCode', 'Unknown')
+                patient_zip_map[f"urn:uuid:{p_id}"] = addresses[0].get('postalCode', 'Unknown')
 
-    # Filter for ILI symptoms
-    ili_obs = obs_df[obs_df['code'].apply(lambda x: any(c['code'] in ['8310-5', '49727002', '162357003'] for c in x['coding']))]
+    # 2. Extract relevant resources
+    observations = [r for r in raw_data if r.get('resourceType') == 'Observation']
+    conditions = [r for r in raw_data if r.get('resourceType') == 'Condition']
     
-    # Temporal Analysis
-    daily_counts = obs_df.groupby('date').size().reset_index(name='total_visits')
-    ili_counts = ili_obs.groupby('date').size().reset_index(name='ili_cases')
-    analysis_df = pd.merge(daily_counts, ili_counts, on='date', how='left').fillna(0)
+    obs_df = pd.DataFrame(observations)
+    cond_df = pd.DataFrame(conditions)
     
-    # Anomaly Detection (14-day rolling window for longer trends)
-    analysis_df['rolling_mean'] = analysis_df['ili_cases'].shift(1).rolling(window=14).mean()
-    analysis_df['rolling_std'] = analysis_df['ili_cases'].shift(1).rolling(window=14).std()
-    analysis_df['threshold'] = analysis_df['rolling_mean'] + (2 * analysis_df['rolling_std'])
-    analysis_df['is_anomaly'] = analysis_df['ili_cases'] > analysis_df['threshold']
+    if obs_df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    # Normalize Dates and Patient IDs
+    obs_df['date_dt'] = pd.to_datetime(obs_df['effectiveDateTime'], errors='coerce', utc=True)
+    obs_df = obs_df.dropna(subset=['date_dt']).copy()
+    obs_df['date'] = obs_df['date_dt'].dt.date
+    obs_df['patient_id'] = obs_df['subject'].apply(lambda x: x.get('reference') if isinstance(x, dict) else 'Unknown')
     
-    # Return both temporal and raw ili data for dashboard
-    return analysis_df, ili_obs
+    if not cond_df.empty:
+        cond_df['date_dt'] = pd.to_datetime(cond_df['recordedDate'], errors='coerce', utc=True)
+        cond_df = cond_df.dropna(subset=['date_dt']).copy()
+        cond_df['date'] = cond_df['date_dt'].dt.date
+        cond_df['patient_id'] = cond_df['subject'].apply(lambda x: x.get('reference') if isinstance(x, dict) else 'Unknown')
+
+    # 3. Symptom Mapping (LOINC/SNOMED)
+    SYMPTOMS = {
+        'Fever': ['8310-5', '386661006', '103001002'],
+        'Cough': ['49727002'],
+        'Rash': ['271757001'],
+        'SoreThroat': ['267102003', '43878008', '162357003'],
+        'MusclePain': ['68962001'],
+        'JointPain': ['57676002', '297077008'],
+        'Headache': ['25064002']
+    }
+
+    def get_symptoms(row):
+        codes = [c.get('code') for c in row['code'].get('coding', [])]
+        return [s for s, s_codes in SYMPTOMS.items() if any(c in s_codes for c in codes)]
+
+    obs_df['symptoms'] = obs_df.apply(get_symptoms, axis=1)
+    
+    # Check for Fever specifically (Value > 37.5 or Fever Condition)
+    def is_actual_fever(row):
+        if 'Fever' in row['symptoms']:
+            if row.get('resourceType') == 'Condition': return True
+            val = row.get('valueQuantity', {}).get('value')
+            if val and val > 37.5: return True # Slightly lower threshold for syndromic screening
+        return False
+    
+    obs_df['has_fever'] = obs_df.apply(is_actual_fever, axis=1)
+
+    # 4. Aggregate by Patient and Date
+    # First, get patient metadata (zip, facility) per encounter/date if possible
+    # We'll pick the first one found for that patient/date
+    obs_df['zip_code'] = obs_df['patient_id'].apply(lambda x: patient_zip_map.get(x, 'Unknown'))
+    if 'device' in obs_df.columns:
+        obs_df['facility'] = obs_df['device'].apply(lambda x: x.get('display') if isinstance(x, dict) else 'Unknown')
+    else:
+        obs_df['facility'] = 'Unknown'
+
+    patient_daily = obs_df.groupby(['patient_id', 'date']).agg({
+        'symptoms': lambda x: sum(x, []),
+        'has_fever': 'any',
+        'zip_code': 'first',
+        'facility': 'first'
+    }).reset_index()
+
+    # Also check Conditions for symptoms
+    if not cond_df.empty:
+        cond_df['symptoms'] = cond_df.apply(get_symptoms, axis=1)
+        cond_df['has_fever'] = cond_df.apply(is_actual_fever, axis=1)
+        cond_df['zip_code'] = cond_df['patient_id'].apply(lambda x: patient_zip_map.get(x, 'Unknown'))
+        
+        patient_daily_cond = cond_df.groupby(['patient_id', 'date']).agg({
+            'symptoms': lambda x: sum(x, []),
+            'has_fever': 'any',
+            'zip_code': 'first'
+        }).reset_index()
+        
+        # Merge observations and conditions symptoms
+        patient_daily = pd.merge(patient_daily, patient_daily_cond, on=['patient_id', 'date'], how='outer')
+        patient_daily['symptoms'] = (patient_daily['symptoms_x'].fillna('').apply(list) + 
+                                     patient_daily['symptoms_y'].fillna('').apply(list))
+        patient_daily['has_fever'] = patient_daily['has_fever_x'].fillna(False) | patient_daily['has_fever_y'].fillna(False)
+        patient_daily['zip_code'] = patient_daily['zip_code_x'].fillna(patient_daily['zip_code_y'])
+        patient_daily['facility'] = patient_daily['facility'].fillna('Unknown')
+
+    def classify(row):
+        syms = set(row['symptoms'])
+        fever = row['has_fever']
+        
+        results = []
+        # COVID-like: Fever + Cough
+        if fever and 'Cough' in syms: results.append('COVID-like')
+        
+        # Dengue-like: Fever + at least 1 of {Rash, JointPain, Headache, MusclePain}
+        # (Simplified for screening; TW CDC requires more for confirmation)
+        if fever and any(s in syms for s in ['Rash', 'JointPain', 'Headache', 'MusclePain']): 
+            results.append('Dengue-like')
+            
+        # Flu-like: Fever + (Cough or SoreThroat) + MusclePain
+        if fever and ('Cough' in syms or 'SoreThroat' in syms) and 'MusclePain' in syms: 
+            results.append('Flu-like')
+        
+        return results if results else ['Negative']
+
+    patient_daily['classification'] = patient_daily.apply(classify, axis=1)
+    
+    # 5. Temporal Analysis for each scenario
+    scenarios = ['COVID-like', 'Dengue-like', 'Flu-like']
+    daily_stats = patient_daily.groupby('date').size().reset_index(name='total_visits')
+    daily_stats = daily_stats.set_index('date')
+    
+    for s in scenarios:
+        s_counts = patient_daily[patient_daily['classification'].apply(lambda x: s in x)].groupby('date').size()
+        daily_stats[s] = s_counts
+        daily_stats[s] = daily_stats[s].fillna(0)
+        
+        # Anomaly Detection (14-day rolling window)
+        daily_stats[f'{s}_mean'] = daily_stats[s].shift(1).rolling(window=14).mean()
+        daily_stats[f'{s}_std'] = daily_stats[s].shift(1).rolling(window=14).std()
+        daily_stats[f'{s}_threshold'] = daily_stats[f'{s}_mean'] + (3 * daily_stats[f'{s}_std']) # 3SD for better precision
+        daily_stats[f'{s}_anomaly'] = (daily_stats[s] > daily_stats[f'{s}_threshold']) & (daily_stats[s] > 1)
+
+    return daily_stats.reset_index(), patient_daily
 
 def visualize(df):
-    plt.figure(figsize=(12, 6))
-    plt.plot(df['date'], df['ili_cases'], label='ILI Cases', marker='o')
-    plt.plot(df['date'], df['threshold'], label='Anomaly Threshold (2 SD)', linestyle='--', color='red')
+    plt.figure(figsize=(15, 10))
+    scenarios = ['COVID-like', 'Dengue-like', 'Flu-like']
+    colors = ['blue', 'orange', 'green']
     
-    anomalies = df[df['is_anomaly']]
-    plt.scatter(anomalies['date'], anomalies['ili_cases'], color='red', label='Outbreak Detected', zorder=5)
-    
-    plt.title('Syndromic Surveillance: ILI Temporal Analysis')
+    for i, s in enumerate(scenarios):
+        plt.subplot(3, 1, i+1)
+        plt.plot(df['date'], df[s], label=f'{s} Cases', color=colors[i], marker='o')
+        plt.plot(df['date'], df[f'{s}_threshold'], label='Threshold', linestyle='--', color='red')
+        
+        anomalies = df[df[f'{s}_anomaly']]
+        plt.scatter(anomalies['date'], anomalies[s], color='red', label='Anomaly', zorder=5)
+        
+        plt.title(f'Syndromic Surveillance: {s} Temporal Analysis')
+        plt.ylabel('Case Count')
+        plt.legend()
+        plt.grid(True)
+
     plt.xlabel('Date')
-    plt.ylabel('Case Count')
-    plt.legend()
-    plt.grid(True)
-    plt.xticks(rotation=45)
     plt.tight_layout()
     plt.savefig('outputs/anomaly_visualization.png')
     print("Visualization saved to outputs/anomaly_visualization.png")
-
-from generate_eicr import generate_eicr
-from report_eicr_to_fhir import report_eicr_to_fhir
 
 def main():
     import os
@@ -81,26 +179,34 @@ def main():
         os.makedirs('outputs')
         
     try:
-        # In a real workflow, this file comes from Step 3
-        analysis_df, ili_obs = process_data('exported_data.ndjson')
+        daily_stats, patient_daily = process_data('exported_data.ndjson')
+        if daily_stats.empty:
+            print("No data to analyze.")
+            return
+
         print("Analysis complete. Anomaly detection results:")
+        for s in ['COVID-like', 'Dengue-like', 'Flu-like']:
+            anomalies = daily_stats[daily_stats[f'{s}_anomaly']]
+            if not anomalies.empty:
+                print(f"\n🚨 {s} Anomalies Detected:")
+                print(anomalies[['date', s, f'{s}_threshold']])
+                
+                # Generate eICR for the latest anomaly
+                latest = anomalies.iloc[-1]
+                eicr_bundle = generate_eicr(f"{s} Cluster", int(latest[s]), str(latest['date']))
+                try:
+                    # Persistent Audit Trail (Fulfills Page 19 Requirement)
+                    report_eicr_to_fhir(eicr_bundle, f"{s} Cluster", str(latest['date']))
+                except Exception as e:
+                    print(f"⚠️ Could not report eICR to FHIR server (Server might be down)")
         
-        anomalies = analysis_df[analysis_df['is_anomaly']]
-        print(anomalies)
-        
-        # Automatically generate eICR and persist audit trail for the latest anomaly
-        if not anomalies.empty:
-            latest = anomalies.iloc[-1]
-            eicr_bundle = generate_eicr("ILI (Respiratory Cluster)", int(latest['ili_cases']), str(latest['date']))
-            # Persistent Audit Trail (Fulfills Page 19 Requirement)
-            report_eicr_to_fhir(eicr_bundle, "ILI (Respiratory Cluster)", str(latest['date']))
-        
-        visualize(analysis_df)
-        analysis_df.to_csv('outputs/syndromic_mapping.csv', index=False)
-        ili_obs.to_csv('outputs/geographic_hotspots.csv', index=False)
-        print("Data exported to outputs/syndromic_mapping.csv and outputs/geographic_hotspots.csv")
+        visualize(daily_stats)
+        daily_stats.to_csv('outputs/syndromic_mapping.csv', index=False)
+        patient_daily.to_csv('outputs/patient_classifications.csv', index=False)
+        print("Data exported to outputs/syndromic_mapping.csv and outputs/patient_classifications.csv")
     except FileNotFoundError:
-        print("Error: exported_data.ndjson not found. Please run Step 3 or live_export.py first.")
+        print("Error: exported_data.ndjson not found.")
+
 
 if __name__ == "__main__":
     main()

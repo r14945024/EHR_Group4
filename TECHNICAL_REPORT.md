@@ -1,66 +1,61 @@
 # FHIR-Driven Intelligent Infectious Disease Notification and Syndromic Surveillance System
 
 **Group Number:** 4  
-**Member Names:** [Insert Names]
+**Member Names:** I-Chen Tsai
 
 ---
 
 ## Abstract
-This project presents a functional prototype of a "Clinical-to-Public Health" pipeline designed to automate infectious disease reporting. By integrating a conversational AI front-end with a FHIR-native storage layer (Group 2) and a syndromic surveillance analysis layer (Group 4), we demonstrate how standardized health data can be transformed from individual triage entries into actionable population-level insights. The system utilizes HAPI FHIR for persistence, Bulk FHIR for large-scale extraction, and statistical clustering to detect outbreaks in real-time.
+This project presents a functional prototype of a "Clinical-to-Public Health" pipeline designed to automate infectious disease reporting. By processing over **400,000 FHIR resources** extracted from **557 patient bundles**, we demonstrate how standardized health data can be transformed from individual triage entries into actionable population-level insights. The system utilizes HAPI FHIR for persistence, Bulk FHIR for large-scale extraction, and statistical clustering to detect outbreaks in real-time.
 
 ## Background & Unmet Need
-Historically, public health surveillance has relied on manual, paper-based notification forms, leading to significant latency, data fragmentation, and administrative burden on clinicians. These delays often mean that outbreaks are identified only after laboratory confirmation, missing the critical window for early intervention. A FHIR-based automated solution is required to ensure semantic interoperability, reduce "clinical fatigue," and provide the CDC with a real-time "Source of Truth" for biosecurity.
+Historically, public health surveillance has relied on manual, paper-based notification forms, leading to significant latency and administrative burden. A FHIR-based automated solution ensures semantic interoperability, reduces "clinical fatigue," and provides a real-time "Source of Truth" for biosecurity, allowing for intervention before laboratory confirmation.
 
 ## System Architecture
-The system architecture follows a modular, layer-based approach:
-1.  **Data Capture:** A digital avatar (Rasa-based) collects patient symptoms and travel history, mapping them to a `QuestionnaireResponse`.
-2.  **Persistence Layer (Group 2):** The `QuestionnaireResponse` is transformed into discrete FHIR resources (`Patient`, `Observation`, `Condition`) and stored in a HAPI FHIR JPA Server via atomic transactions.
-3.  **Analysis Layer (Group 4):** Clinical data is extracted using the Bulk FHIR `$export` protocol in NDJSON format. A Python-based pipeline applies the National Syndromic Surveillance Program (NSSP) framework to categorize syndromes and detect statistical anomalies.
+The system architecture follows a modular approach:
+1.  **Data Capture:** Ingestion of FHIR transaction bundles (Patient, Observation, Condition).
+2.  **Persistence Layer:** HAPI FHIR JPA Server acting as the clinical repository.
+3.  **Analysis Layer (Group 4):** Extraction via Bulk FHIR ($export), rule-based phenotyping (LOINC/SNOMED), and temporal anomaly detection.
 
-## Technical Implementation
+### Technical Implementation
 
 ### Implementation Overview
-1.  **Storage Layer Deployment:** Deployed a HAPI FHIR server using Docker to act as the centralized repository.
-2.  **Data Standardization:** Developed logic to map raw symptoms to LOINC and SNOMED-CT codes (e.g., Fever: `8310-5`, COVID-19: `840539006`).
-3.  **Simulation Engine:** Created a synthetic data generator to simulate **365 days (1 year)** of patient traffic, including a controlled "outbreak spike" for COVID-like symptoms, with added **geographic entropy (Zip Codes)** and **Facility IDs**.
-4.  **Anomaly Detection & Visualization:** Built a Pandas-based pipeline that calculates a **14-day rolling baseline** to detect multi-season anomalies. Developed an **interactive Streamlit Dashboard** for real-time longitudinal surveillance.
+1.  **Storage Layer Deployment:** Deployed a HAPI FHIR server using Docker.
+2.  **Data Standardization:** Mapped symptoms to LOINC and SNOMED-CT codes.
+3.  **High-Fidelity Simulation:** Integrated 557 patient bundles (409,973 resources) to test scale and longitudinal accuracy.
+4.  **NSSP Validation:** Implemented `validate_nssp.py` to monitor Priority 1 Data Elements (Zip, DOB, Gender, LOINC).
+5.  **Anomaly Detection:** Built a Pandas pipeline calculating a 14-day rolling 3-SD baseline.
+6.  **Interactive Dashboard:** Developed a Streamlit interface for real-time surveillance.
 
 ### Technical Deep-Dive (Advanced Surveillance)
-*   **Longitudinal Surveillance:** By simulating a full year of clinical encounters, the system demonstrates the ability to differentiate between seasonal background noise and acute infectious disease outbreaks.
-*   **Live Bulk FHIR Export:** We implemented a client that utilizes the **Async $export** protocol and a **Smart Merge** deduplication logic.
-*   **Automated eICR Alerting:** Upon anomaly detection, the system triggers the `generate_eicr.py` module, which packages the cluster data into a formal **HL7 FHIR Document Bundle (eICR)** for public health notification.
-*   **Clinical Reasoning (CQL):** We authored a `covid_logic.cql` file that demonstrates how the system's "Brain" evaluates discrete observations (Fever + Cough) to flag suspected cases, ensuring semantic consistency between the storage and decision layers.
-*   **Geographic Clustering:** The system parses patient `address.postalCode` and `device.display` (Facility ID) from FHIR resources to identify geographic hotspots.
-*   **Persistent Data Archiving:** The analysis pipeline implements a "Smart Merge" logic during data extraction. It deduplicates incoming FHIR resources against the local archive, allowing for cumulative data growth and multi-month longitudinal analysis that persists even if the temporary FHIR server is reset.
+*   **Surgical Data Ingestion:** `upload_bundles.py` implements "Safety Valve" logic to split large bundles (up to 57MB) while maintaining transaction integrity.
+*   **Resilient Extraction:** `live_export.py` utilizes Bulk FHIR with an automated "Crawl Fallback" mechanism to ensure data availability even if the bulk engine is unstable.
+*   **Rule-Based Phenotyping:**
+    *   **COVID-19:** Fever + Cough (LOINC `8310-5`, SNOMED `49727002`).
+    *   **Dengue:** Fever + Rash/Headache/Joint Pain/Muscle Pain.
+    *   **Influenza:** Fever + (Cough or Sore Throat) + Muscle Pain.
+*   **Automated eICR Alerting:** Upon detecting an anomaly, `run_analysis.py` triggers `generate_eicr.py` to create a formal HL7 FHIR Document Bundle.
+*   **Persistent Audit Trail:** The system automatically executes `report_eicr_to_fhir.py` to save generated alerts back to the FHIR server. This ensures that every public health notification is versioned, searchable, and available for federal auditing.
+*   **Clinical Reasoning (CQL):** Authored `syndromic_logic.cql` (v2.0.0) to align with professional classification standards.
 
 ## FHIR Standards Utilized
-*   **HL7 FHIR R4 Resources:** Patient, Observation, Condition, Bundle.
-*   **Bulk FHIR Access:** `$export` protocol for NDJSON retrieval.
-*   **Terminology Standards:** LOINC (vitals/symptoms) and SNOMED-CT (diagnoses/conditions).
-*   **NSSP Implementation Guide:** Framework for syndromic categorization.
+*   **HL7 FHIR R4 Resources:** Patient, Observation, Condition, Bundle, Binary (for eICR storage).
+*   **Terminology Standards:** LOINC (vitals) and SNOMED-CT (diagnoses/symptoms).
+*   **TW Core IG:** Alignment with Taiwan's national profiles for infectious disease reporting.
 
 ## Test Cases
 
 ### 1. COVID-like Scenario
-*   **Input:** Fever + Cough + Travel History.
-*   **Expected FHIR Output:** 
-    *   `Observation` (LOINC `8310-5` / `49727002`)
-    *   `Condition` (SNOMED `840539006` - COVID-19)
-*   **Analysis Result:** Correctly mapped to the "ILI" (Influenza-Like Illness) syndrome cluster.
+*   **Input:** Patient with Temperature > 37.5°C and Cough Observation.
+*   **Result:** Correctly identified as "COVID-like" cluster. Anomaly detected on 2021-04-17 in the synthetic dataset.
 
 ### 2. Dengue-like Scenario
-*   **Input:** Fever + Rash + Joint Pain.
-*   **Expected FHIR Output:** 
-    *   `Observation` (LOINC `8310-5` / `271757001`)
-    *   `Condition` (SNOMED `38362002` - Dengue fever)
-*   **Analysis Result:** Mapped to the "Febrile with Rash" syndrome cluster.
+*   **Input:** Patient with Fever and Headache or Rash.
+*   **Result:** Mapped to "Dengue-like" cluster. System detected scattered occurrences across the longitudinal archive.
 
 ### 3. Flu-like Scenario
-*   **Input:** Fever + Sore Throat + Muscle Aches.
-*   **Expected FHIR Output:** 
-    *   `Observation` (LOINC `8310-5` / `162357003`)
-    *   `Condition` (SNOMED `6142004` - Influenza)
-*   **Analysis Result:** Included in the baseline temporal analysis for respiratory trends.
+*   **Input:** Patient with Fever, Sore Throat, and Muscle Aches.
+*   **Result:** Mapped to "Flu-like" cluster, representing severe respiratory cases requiring closer monitoring.
 
 ## Conclusion & Future Policy Impact
 This prototype demonstrates that a "born digital" approach to clinical triage is not only feasible but essential for modern biosecurity. By aligning with the "TW Core" national data platform and future CDC automated reporting mandates, this system provides a blueprint for a unified, real-time national health surveillance ecosystem.
