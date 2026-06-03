@@ -3,10 +3,10 @@ import json
 
 def bundle_to_ndjson(fhir_dir, output_file):
     count = 0
-    with open(output_file, 'w') as outfile:
+    with open(output_file, 'w',encoding='utf-8') as outfile:
         for filename in os.listdir(fhir_dir):
             if filename.endswith('.json'):
-                with open(os.path.join(fhir_dir, filename), 'r') as infile:
+                with open(os.path.join(fhir_dir, filename), 'r', encoding='utf-8') as infile:
                     try:
                         bundle = json.load(infile)
                         if bundle.get('resourceType') == 'Bundle':

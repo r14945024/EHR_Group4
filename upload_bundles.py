@@ -3,6 +3,7 @@ import json
 import requests
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 FHIR_SERVER = "http://localhost:8081/fhir"
 
@@ -90,7 +91,17 @@ def upload_resource(path, data):
     else:
         return post(f"{FHIR_SERVER}/{data.get('resourceType')}", data, path)
 
-def run(folder):
+def process_single_file(f, path):
+    """Worker function for reading and uploading a single file."""
+    try:
+        with open(path, "r", encoding="utf-8") as fp: 
+            data = json.load(fp)
+        ok, msg = upload_resource(path, data)
+        return (f, ok, msg)
+    except Exception as e:
+        return (f, False, str(e))
+
+def run(folder, enable_multithreading=False):
     if not os.path.exists(folder): return
     files = [(f, os.path.join(folder, f)) for f in os.listdir(folder) if f.endswith(".json")]
     
@@ -103,25 +114,68 @@ def run(folder):
     files.sort(key=sort_key)
 
     print(f"🚀 Starting Upload of {len(files)} files...")
+    print(f"⚙️ Multithreading Enabled: {enable_multithreading}")
     success, fail = 0, 0
 
-    for i, (f, path) in enumerate(files):
-        print(f"[{i+1}/{len(files)}] {f}...", end="", flush=True)
-        try:
-            with open(path, "r",encoding='utf-8') as fp: data = json.load(fp)
-            ok, msg = upload_resource(path, data)
+    if not enable_multithreading:
+        # -----------------------------
+        # ORIGINAL SEQUENTIAL BEHAVIOR
+        # -----------------------------
+        for i, (f, path) in enumerate(files):
+            print(f"[{i+1}/{len(files)}] {f}...", end="", flush=True)
+            f_name, ok, msg = process_single_file(f, path)
             if ok:
                 print(" ✅ [OK]")
                 success += 1
             else:
                 print(f" ❌ [FAIL] -> {msg}")
                 fail += 1
-        except Exception as e:
-            print(f" ❌ [ERROR] -> {e}")
-            fail += 1
-        time.sleep(0.1)
+    else:
+        # -----------------------------
+        # TWO-PHASE MULTITHREADED BEHAVIOR
+        # -----------------------------
+        foundational_files = []
+        patient_files = []
+        
+        for item in files:
+            fn = item[0].lower()
+            if 'hospital' in fn or 'organization' in fn or 'practitioner' in fn:
+                foundational_files.append(item)
+            else:
+                patient_files.append(item)
+
+        # Phase 1: Upload foundational files sequentially
+        print(f"\n--- Phase 1: Uploading Foundational Resources ({len(foundational_files)} files) ---")
+        for i, (f, path) in enumerate(foundational_files):
+            print(f"[{i+1}/{len(foundational_files)}] {f}...", end="", flush=True)
+            f_name, ok, msg = process_single_file(f, path)
+            if ok:
+                print(" ✅ [OK]")
+                success += 1
+            else:
+                print(f" ❌ [FAIL] -> {msg}")
+                fail += 1
+
+        # Phase 2: Multithread Patient/Clinical files
+        print(f"\n--- Phase 2: Multithreading Clinical Bundles ({len(patient_files)} files) ---")
+        max_workers = 8 
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_file = {executor.submit(process_single_file, f, path): f for f, path in patient_files}
+            
+            completed = 0
+            for future in as_completed(future_to_file):
+                completed += 1
+                f_name, ok, msg = future.result()
+                if ok:
+                    print(f"[{completed}/{len(patient_files)}] {f_name}... ✅ [OK]")
+                    success += 1
+                else:
+                    print(f"[{completed}/{len(patient_files)}] {f_name}... ❌ [FAIL] -> {msg}")
+                    fail += 1
 
     print(f"\n===== SUMMARY =====\nSuccess: {success}\nFailed : {fail}")
 
 if __name__ == "__main__":
-    run("fhir")
+    # Change to enable_multithreading=True to activate the concurrent uploads
+    run("fhir", enable_multithreading=False)

@@ -7,7 +7,7 @@ from report_eicr_to_fhir import report_eicr_to_fhir
 
 def load_ndjson(file_path):
     data = []
-    with open(file_path, 'r') as f:
+    with open(file_path, 'r', encoding='utf-8') as f:
         for line in f:
             data.append(json.loads(line))
     return data
@@ -198,11 +198,11 @@ def main():
                     # Persistent Audit Trail (Fulfills Page 19 Requirement)
                     report_eicr_to_fhir(eicr_bundle, f"{s} Cluster", str(latest['date']))
                 except Exception as e:
-                    print(f"⚠️ Could not report eICR to FHIR server (Server might be down)")
+                    print("⚠️ Could not report eICR to FHIR server (Server might be down)")
         
         visualize(daily_stats)
-        daily_stats.to_csv('outputs/syndromic_mapping.csv', index=False)
-        patient_daily.to_csv('outputs/patient_classifications.csv', index=False)
+        daily_stats.to_csv('outputs/syndromic_mapping.csv', index=False, encoding='utf-8')
+        patient_daily.to_csv('outputs/patient_classifications.csv', index=False,encoding='utf-8')
         print("Data exported to outputs/syndromic_mapping.csv and outputs/patient_classifications.csv")
     except FileNotFoundError:
         print("Error: exported_data.ndjson not found.")

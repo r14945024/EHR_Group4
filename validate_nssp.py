@@ -15,7 +15,7 @@ def validate_nssp_format(file_path):
         "Condition": {"Code": 0, "ClinicalStatus": 0}
     }
     
-    with open(file_path, 'r') as f:
+    with open(file_path, 'r', encoding='utf-8') as f:
         for line_num, line in enumerate(f, 1):
             if not line.strip():
                 continue
