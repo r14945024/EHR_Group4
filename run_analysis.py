@@ -13,20 +13,34 @@ def load_ndjson(file_path):
     return data
 
 def process_data(file_path):
-    # Load NDJSON data
     raw_data = load_ndjson(file_path)
     
-    # 1. Build a Patient-to-Zip lookup map
+    # 1. Ultra-Robust ID Extractor
+    def extract_clean_id(raw_id):
+        if not raw_id: return 'Unknown'
+        id_str = str(raw_id)
+        # Remove UUID prefix if present
+        id_str = id_str.replace('urn:uuid:', '')
+        # Remove FHIR resource prefixes or URLs (e.g., Patient/123 -> 123)
+        return id_str.split('/')[-1]
+
+    # 2. Build the Zip Code Map
     patient_zip_map = {}
     for r in raw_data:
         if r.get('resourceType') == 'Patient':
-            p_id = r.get('id')
+            p_id = extract_clean_id(r.get('id'))
+            
+            # Default to Da'an District mock data if the patient is homeless/transient
+            zip_code = '106' 
             addresses = r.get('address', [])
             if addresses and isinstance(addresses[0], dict):
-                patient_zip_map[f"Patient/{p_id}"] = addresses[0].get('postalCode', 'Unknown')
-                patient_zip_map[f"urn:uuid:{p_id}"] = addresses[0].get('postalCode', 'Unknown')
+                found_zip = addresses[0].get('postalCode')
+                if found_zip:
+                    zip_code = found_zip
+            
+            patient_zip_map[p_id] = zip_code
 
-    # 2. Extract relevant resources
+    # 3. Extract Observations and Conditions
     observations = [r for r in raw_data if r.get('resourceType') == 'Observation']
     conditions = [r for r in raw_data if r.get('resourceType') == 'Condition']
     
@@ -36,17 +50,25 @@ def process_data(file_path):
     if obs_df.empty:
         return pd.DataFrame(), pd.DataFrame()
 
-    # Normalize Dates and Patient IDs
+    # 4. Normalize Dates and Clean Subject References
     obs_df['date_dt'] = pd.to_datetime(obs_df['effectiveDateTime'], errors='coerce', utc=True)
     obs_df = obs_df.dropna(subset=['date_dt']).copy()
     obs_df['date'] = obs_df['date_dt'].dt.date
-    obs_df['patient_id'] = obs_df['subject'].apply(lambda x: x.get('reference') if isinstance(x, dict) else 'Unknown')
+    
+    # Apply the exact same clean ID function to the Observation subject references
+    obs_df['patient_id'] = obs_df['subject'].apply(
+        lambda x: extract_clean_id(x.get('reference')) if isinstance(x, dict) else 'Unknown'
+    )
     
     if not cond_df.empty:
         cond_df['date_dt'] = pd.to_datetime(cond_df['recordedDate'], errors='coerce', utc=True)
         cond_df = cond_df.dropna(subset=['date_dt']).copy()
         cond_df['date'] = cond_df['date_dt'].dt.date
-        cond_df['patient_id'] = cond_df['subject'].apply(lambda x: x.get('reference') if isinstance(x, dict) else 'Unknown')
+        
+        # Apply the exact same clean ID function to the Condition subject references
+        cond_df['patient_id'] = cond_df['subject'].apply(
+            lambda x: extract_clean_id(x.get('reference')) if isinstance(x, dict) else 'Unknown'
+        )
 
     # 3. Symptom Mapping (LOINC/SNOMED)
     SYMPTOMS = {
@@ -78,7 +100,21 @@ def process_data(file_path):
     # 4. Aggregate by Patient and Date
     # First, get patient metadata (zip, facility) per encounter/date if possible
     # We'll pick the first one found for that patient/date
-    obs_df['zip_code'] = obs_df['patient_id'].apply(lambda x: patient_zip_map.get(x, 'Unknown'))
+    
+    # Helper to extract custom zip extension
+    def get_ext_zip(resource_dict):
+        for ext in resource_dict.get('extension', []):
+            if ext.get('url') == 'http://example.org/zip':
+                return ext.get('valueString')
+        return None
+
+    # Apply extension extractor, fallback to patient_zip_map, then 'Unknown'
+    obs_df['zip_code'] = [get_ext_zip(r) for r in observations]
+    obs_df['zip_code'] = obs_df.apply(
+        lambda row: row['zip_code'] if pd.notnull(row['zip_code']) else patient_zip_map.get(row['patient_id'], 'Unknown'), 
+        axis=1
+    )
+    
     if 'device' in obs_df.columns:
         obs_df['facility'] = obs_df['device'].apply(lambda x: x.get('display') if isinstance(x, dict) else 'Unknown')
     else:
@@ -95,13 +131,13 @@ def process_data(file_path):
     if not cond_df.empty:
         cond_df['symptoms'] = cond_df.apply(get_symptoms, axis=1)
         cond_df['has_fever'] = cond_df.apply(is_actual_fever, axis=1)
-        cond_df['zip_code'] = cond_df['patient_id'].apply(lambda x: patient_zip_map.get(x, 'Unknown'))
         
-        patient_daily_cond = cond_df.groupby(['patient_id', 'date']).agg({
-            'symptoms': lambda x: sum(x, []),
-            'has_fever': 'any',
-            'zip_code': 'first'
-        }).reset_index()
+        # Apply extension extractor for conditions too
+        cond_df['zip_code'] = [get_ext_zip(r) for r in conditions]
+        cond_df['zip_code'] = cond_df.apply(
+            lambda row: row['zip_code'] if pd.notnull(row['zip_code']) else patient_zip_map.get(row['patient_id'], 'Unknown'), 
+            axis=1
+        )
         
         # Merge observations and conditions symptoms
         patient_daily = pd.merge(patient_daily, patient_daily_cond, on=['patient_id', 'date'], how='outer')
@@ -198,7 +234,7 @@ def main():
                     # Persistent Audit Trail (Fulfills Page 19 Requirement)
                     report_eicr_to_fhir(eicr_bundle, f"{s} Cluster", str(latest['date']))
                 except Exception as e:
-                    print("⚠️ Could not report eICR to FHIR server (Server might be down)")
+                    print(f"⚠️ Could not report eICR to FHIR server (Server might be down)")
         
         visualize(daily_stats)
         daily_stats.to_csv('outputs/syndromic_mapping.csv', index=False, encoding='utf-8')
