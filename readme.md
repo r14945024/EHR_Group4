@@ -1,6 +1,6 @@
 # FHIR-Driven Intelligent Infectious Disease Notification and Syndromic Surveillance System
 
-**Group 4** | **Member:** I-Chen Tsai
+**Group 4** | **Members:** I-Chen Tsai, David Gracia, Hung-Yu Chu, Chun-Wei Chen
 
 ## Overview
 This repository contains a functional prototype of a "Clinical-to-Public Health" pipeline designed to automate infectious disease reporting. It processes over 400,000 synthetic FHIR resources to transform individual emergency triage entries into actionable, population-level insights. 
