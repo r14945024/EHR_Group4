@@ -3,7 +3,7 @@ import time
 import json
 import os
 
-FHIR_SERVER_URL = "http://localhost:8081/fhir/fhir"
+FHIR_SERVER_URL = "http://localhost:8081/fhir"
 
 def trigger_export():
     """Initiates the Bulk FHIR $export operation."""

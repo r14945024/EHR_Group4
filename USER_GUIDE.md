@@ -32,7 +32,7 @@ This guide explains the function of each component in the **Group 4 Analysis San
 
 ### Phase 1: Environment Setup
 1.  **Start the FHIR Server:** `docker-compose up -d`
-    *   This deploys a HAPI FHIR JPA server on `http://localhost:8081/fhir`.
+    *   This deploys a HAPI FHIR JPA server on `http://localhost:8081/`.
 2.  **Install Dependencies:**
     ```bash
     pip install requests flask pandas numpy matplotlib streamlit plotly
