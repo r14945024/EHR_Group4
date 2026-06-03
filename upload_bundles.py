@@ -4,7 +4,7 @@ import requests
 import time
 from collections import defaultdict
 
-FHIR_SERVER = "http://localhost:8081/fhir/fhir"
+FHIR_SERVER = "http://localhost:8081/fhir"
 
 # -----------------------------
 # 1. Transform & Split Logic (The "Safety Valve" for 50MB+ files)
@@ -108,7 +108,7 @@ def run(folder):
     for i, (f, path) in enumerate(files):
         print(f"[{i+1}/{len(files)}] {f}...", end="", flush=True)
         try:
-            with open(path, "r") as fp: data = json.load(fp)
+            with open(path, "r",encoding='utf-8') as fp: data = json.load(fp)
             ok, msg = upload_resource(path, data)
             if ok:
                 print(" ✅ [OK]")
