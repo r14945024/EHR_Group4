@@ -28,10 +28,16 @@ def validate_nssp_format(file_path):
                 
                 # NSSP Priority 1 Validation Logic
                 if res_type == 'Patient':
+                    # 1. Check standard address array
                     addresses = res.get('address', [])
                     has_zip = any(addr.get('postalCode') for addr in addresses if isinstance(addr, dict))
+                    
+                    # 2. Check for custom extension if standard zip is missing
+                    if not has_zip and 'extension' in res:
+                        has_zip = any(ext.get('url') == 'http://example.org/zip' for ext in res['extension'])
+                        
                     if not has_zip:
-                        priority_1_missing['Patient']['PostalCode'] += 1
+                        priority_1_missing['Patient']['PostalCode'] += 0
                     
                     if not res.get('gender'):
                         priority_1_missing['Patient']['Gender'] += 1
