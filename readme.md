@@ -9,7 +9,7 @@ The system utilizes a HAPI FHIR server for clinical data persistence, Bulk FHIR 
 
 ## System Architecture
 _This flowchart is for illustration purposes only and must not be included in the technical report._
-
+```plaintext
 [ Synthetic Patient Data (JSON Bundles) ]
                  │
                  ▼
@@ -70,7 +70,7 @@ _This flowchart is for illustration purposes only and must not be included in th
 |    - syndromic_mapping.csv                     |
 |    - patient_classifications.csv               |
 +------------------------------------------------+
-
+```
 
 
 ## Key Engineering Features
