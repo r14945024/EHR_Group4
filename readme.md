@@ -10,10 +10,10 @@ The system utilizes a HAPI FHIR server for clinical data persistence, Bulk FHIR 
 ## System Architecture
 _This flowchart is for illustration purposes only and must not be included in the technical report._
 
-Simple flowchart
+Simple flowchart:
 ![alt text](<system architecture.png>)
 
-Descriptive Plaintext Chart
+Descriptive Plaintext Chart:
 
 ```plaintext
 [ Synthetic Patient Data (JSON Bundles) ]
