@@ -1,64 +1,224 @@
-# FHIR-Driven Intelligent Infectious Disease Notification and Syndromic Surveillance System
+# Syndromic Surveillance & Population Health (Analysis Layer)
 
-**Group Number:** 4  
-**Member Names:** I-Chen Tsai
-
----
+Group Number: 4
+Member Names: 朱大衛, 蔡宜臻, 朱竑宇, 陳俊威
 
 ## Abstract
-This project presents a functional prototype of a "Clinical-to-Public Health" pipeline designed to automate infectious disease reporting. By processing over **400,000 FHIR resources** extracted from **557 patient bundles**, we demonstrate how standardized health data can be transformed from individual triage entries into actionable population-level insights. The system utilizes HAPI FHIR for persistence, Bulk FHIR for large-scale extraction, and statistical clustering to detect outbreaks in real-time.
+This project developed a prototype FHIR-based infectious disease surveillance pipeline. <span style="color:red;">Synthetic patient data (1K Sample Synthetic Patient Records from Synthea)</span> were converted into FHIR resources, stored in a HAPI FHIR server, classified using <span style="color:red;"> rule-based CQL logic for Covid-like, Dengue-like, and Flu-like </span>, exported as NDJSON via Bulk FHIR, and analyzed for syndromic surveillance. When abnormal disease patterns were detected, the system generated simulated eICR alerts and visualized population-level trends through a dashboard.	
 
 ## Background & Unmet Need
-Historically, public health surveillance has relied on manual, paper-based notification forms, leading to significant latency and administrative burden. A FHIR-based automated solution ensures semantic interoperability, reduces "clinical fatigue," and provides a real-time "Source of Truth" for biosecurity, allowing for intervention before laboratory confirmation.
+
+Traditional infectious disease reporting often depends on manual notification forms completed by clinicians. This process may cause reporting delays, inconsistent data formats, and additional administrative burden. A FHIR-based automated surveillance system can reduce these problems by transforming clinical data into standardized resources that can be automatically queried, classified, analyzed, and reported. By shifting from case-level reporting to population-wide analysis, public health authorities can make decisions more quickly and effectively. 
 
 ## System Architecture
-The system architecture follows a modular approach:
-1.  **Data Capture:** Ingestion of FHIR transaction bundles (Patient, Observation, Condition).
-2.  **Persistence Layer:** HAPI FHIR JPA Server acting as the clinical repository.
-3.  **Analysis Layer (Group 4):** Extraction via Bulk FHIR ($export), rule-based phenotyping (LOINC/SNOMED), and temporal anomaly detection.
 
-### Technical Implementation
+The architecture of this syndromic surveillance prototype is designed as a modular, automated data pipeline that bridges individual clinical encounters with population-level biosecurity. To ensure strict independence and maintain focus on the surveillance layer, the system utilizes simulated boundaries to interact with upstream data management and downstream visualization frameworks.
 
-### Implementation Overview
-1.  **Storage Layer Deployment:** Deployed a HAPI FHIR server using Docker.
-2.  **Data Standardization:** Mapped symptoms to LOINC and SNOMED-CT codes.
-3.  **High-Fidelity Simulation:** Integrated 557 patient bundles (409,973 resources) to test scale and longitudinal accuracy.
-4.  **NSSP Validation:** Implemented `validate_nssp.py` to monitor Priority 1 Data Elements (Zip, DOB, Gender, LOINC).
-5.  **Anomaly Detection:** Built a Pandas pipeline calculating a 14-day rolling 3-SD baseline.
-6.  **Interactive Dashboard:** Developed a Streamlit interface for real-time surveillance.
+The structural blueprint is organized into four sequential, decoupled layers:
 
-### Technical Deep-Dive (Advanced Surveillance)
-*   **Surgical Data Ingestion:** `upload_bundles.py` implements "Safety Valve" logic to split large bundles (up to 57MB) while maintaining transaction integrity.
-*   **Resilient Extraction:** `live_export.py` utilizes Bulk FHIR with an automated "Crawl Fallback" mechanism to ensure data availability even if the bulk engine is unstable.
-*   **Rule-Based Phenotyping:**
-    *   **COVID-19:** Fever + Cough (LOINC `8310-5`, SNOMED `49727002`).
-    *   **Dengue:** Fever + Rash/Headache/Joint Pain/Muscle Pain.
-    *   **Influenza:** Fever + (Cough or Sore Throat) + Muscle Pain.
-*   **Automated eICR Alerting:** Upon detecting an anomaly, `run_analysis.py` triggers `generate_eicr.py` to create a formal HL7 FHIR Document Bundle.
-*   **Persistent Audit Trail:** The system automatically executes `report_eicr_to_fhir.py` to save generated alerts back to the FHIR server. This ensures that every public health notification is versioned, searchable, and available for federal auditing.
-*   **Clinical Reasoning (CQL):** Authored `syndromic_logic.cql` (v2.0.0) to align with professional classification standards.
+- Ingestion & Persistence Layer: The front end of the pipeline simulates ingestion from **upstream data standardization (Group 2)** and **clinical decision logic (Group 3)** systems.<span style="color:red;"> Our team used the 1K Sample Synthetic Patient Records generated by Synthea for demonstration purposes</span>. The raw synthetic records are parsed, verified for referential integrity, and committed to a localized HAPI FHIR repository, which serves as the central source of truth.
+- The Extraction & Validation Layer: Data is moved out of the transactional clinical database via asynchronous Bulk FHIR `$export` protocols. The extracted data is compiled into a standardized Newline Delimited JSON (NDJSON) format and passed through an automated validation layer to ensure structural compliance with National Syndromic Surveillance Program (NSSP) guidelines.
+- The Analysis & Surveillance Layer (Core Engine): This layer ingests the validated NDJSON payload and executes rule-based phenotyping, mapping standard LOINC and SNOMED-CT codes to specific infectious categories (COVID-like, Dengue-like, and Flu-like illnesses). The categorized data is grouped by date and postal code, and evaluated against a **14-day** rolling mean with a **three-standard-deviation (3-SD) threshold** to mathematically flag outbreak anomalies.
+- The Alerting & Handoff Layer: Upon detecting a statistical anomaly, the pipeline automatically generates an HL7 **Electronic Initial Case Report (eICR)** Document Bundle. This bundle is posted back to the HAPI FHIR server to maintain a persistent audit trail, creating a standardized handoff ready for downstream **public health notification and dashboard systems (Group 5)**.
 
-## FHIR Standards Utilized
-*   **HL7 FHIR R4 Resources:** Patient, Observation, Condition, Bundle, Binary (for eICR storage).
-*   **Terminology Standards:** LOINC (vitals) and SNOMED-CT (diagnoses/symptoms).
-*   **TW Core IG:** Alignment with Taiwan's national profiles for infectious disease reporting.
+## Technical Implementation
+
+### Implementation Overview and Design Rationale
+
+The technical implementation of the Group 4 syndromic surveillance pipeline is engineered around the principle of strict architectural decoupling. In a production healthcare enterprise, public health surveillance systems must remain isolated from transactional electronic health record (EHR) databases to prevent intense analytical queries from degrading clinical performance. To replicate this separation of concerns, **our module development progressed linearly across distinct stages: ingestion, extraction, statistical analysis, and automated alerting.** Each layer operates as a self-contained functional unit, communicating exclusively through standardized interfaces such as FHIR REST APIs and NDJSON structures.
+
+A primary engineering constraint was managing the boundaries between our core analysis layer and the adjacent, simulated project layers without establishing cross-group code dependencies. To proxy the **upstream data standardization and clinical decision logic (Groups 2 and 3)**, our ingestion layer simulates a post-decision state by loading high-volume, pre-standardized synthetic patient bundles containing the precise clinical terminologies (**LOINC** and **SNOMED-CT**) required for downstream triage modeling. Conversely, to **proxy the downstream public health notification frameworks (Group 5)**, our alerting layer compiles analytical breaches into static, fully compliant HL7 Electronic Initial Case Reports (eICR). These reports are committed back to the FHIR server, creating an open, queryable transaction ledger that a downstream visualization dashboard can passively consume.
+The execution logic progresses through a series of specialized Python modules, detailed below:
+
+1. **Data Ingestion and State Initialization**
+The pipeline begins with the data ingestion engine, `upload_bundles.py`. This module initializes the database state by preprocessing over 400,000 synthetic resources. It actively resolves relational integrity constraints inside the target HAPI FHIR repository by replacing unstable `urn:uuid:` placeholders with immutable logical keys, and it sequences structural foundational assets before clinical observations using a two-phase multithreading strategy.
+
+2. **High-Volume Data Extraction**
+Once the repository is populated, the high-volume extraction layer, `live_export.py`, handles bulk data retrieval. It leverages the asynchronous Bulk FHIR `$export` operation to bypass standard REST search overhead. To maintain maximum system resilience against embedded database locking and H2 memory exhaustion, this module incorporates an automated paginated fallback mechanism that streams resources directly into localized Newline Delimited JSON (NDJSON) flat files.
+
+3. **Data Quality and Compliance Validation**
+The extracted NDJSON artifact is subsequently passed through `validate_nssp.py`, which acts as a data quality gatekeeper. This module enforces conformity to the National Syndromic Surveillance Program (NSSP) Priority 1 data elements, utilizing custom FHIR extension mapping to locate and evaluate geographic metrics that standard parsers often omit.
+
+4. **Rule-Based Phenotyping and Surveillance**
+Following validation, the primary analytical engine, `run_analysis.py`, converts the unstructured, row-level patient observations into localized syndromic counts using rule-based algorithmic phenotyping. The module aggregates the data geographically by postal code and temporally by date, normalizing fluctuations by projecting the daily counts against a dynamic 14-day rolling mean with a 3-SD upper control limit.
+
+5. **Automated Alert Generation and Audit Closure**
+The automated surveillance loop is finalized by the alerting modules, `generate_eicr.py` and `report_eicr_to_fhir.py`. When the surveillance core mathematically flags a statistical anomaly breaching the 3-SD threshold, the system dynamically builds a standardized HL7 eICR Document Bundle detailing the specific cluster metrics. A transactional POST request is immediately issued to push this document back into the central FHIR server, successfully establishing an immutable biosecurity audit trail for public health authorities.
+
+
+### Technical Deep-Dive
+
+To fulfill the rigorous engineering requirements of a functional FHIR ecosystem and provide concrete evidence of our implementation, this section details the specific programmatic workarounds and logic structures developed by Group 4. These code segments demonstrate how our architecture autonomously handles synthetic data anomalies, database deadlocks, and complex referential integrity constraints.
+
+1. **Algorithmic Phenotyping: The Condition-Fallback Mechanism**
+During the development of the syndromic classification engine, we identified a critical structural gap in the synthetic emergency triage data: a high percentage of Observation resources representing body temperatures lacked the valueQuantity attribute. A naive parsing algorithm would have severely undercounted fever cases, rendering the downstream statistical clustering useless.
+
+To resolve this, we engineered an intelligent fallback heuristic within `run_analysis.py`. The `is_actual_fever` function evaluates the clinical observations but cross-references simulated `Condition` resources when the quantitative values are absent, ensuring high-fidelity case counting regardless of structural omissions.
+
+```python
+# run_analysis.py: Fallback logic for missing observation values
+def is_actual_fever(row):
+    if 'Fever' in row['symptoms']:
+        # Fallback: If observation value is missing, check if a formal Condition exists
+        if row.get('resourceType') == 'Condition': 
+            return True
+        # Primary check: Check the quantitative Observation value
+        val = row.get('valueQuantity', {}).get('value')
+        if val and val > 37.5: 
+            return True # Threshold optimized for syndromic screening
+    return False
+```
+
+2. **Referential Integrity: The Ultra-Robust ID Extractor**
+A persistent challenge in processing FHIR bundles is the discrepancy in logical references; the synthetic data generator extensively utilizes contextual `urn:uuid:` prefixes, while the HAPI FHIR server frequently outputs absolute URLs (e.g., `Patient/12345`). This discrepancy caused standard pandas merge operations to fail, resulting in lost geographic mappings. We developed an aggressive ID normalization protocol in `run_analysis.py` that strips all localized prefixes, guaranteeing a perfect one-to-one mapping between clinical observations and patient demographics. 
+
+```python
+# run_analysis.py: Aggressive string normalization for resource IDs
+def extract_clean_id(raw_id):
+    if not raw_id: return 'Unknown'
+    id_str = str(raw_id)
+    # Strip internal UUID prefixes generated by Synthea
+    id_str = id_str.replace('urn:uuid:', '')
+    # Strip FHIR resource prefixes or absolute URLs
+    return id_str.split('/')[-1]
+```
+
+3. **Outbreak Detection: 3-SD Statistical Anomaly Math** 
+The core intelligence of the surveillance pipeline is its mathematical ability to distinguish a routine seasonal illness fluctuation from a high-priority outbreak. Rather than relying on static thresholds, our system establishes a dynamic baseline. By utilizing the Python `pandas` library within `run_analysis.py`, the system groups localized cases by date, calculates a 14-day rolling mean, and derives an upper control limit set at three standard deviations (3-SD). Any daily total exceeding this rolling threshold automatically triggers the eICR generation workflow. 
+
+```python
+# run_analysis.py: Dynamic baseline calculation for anomaly detection
+daily_stats[f'{s}_mean'] = daily_stats[s].shift(1).rolling(window=14).mean()
+daily_stats[f'{s}_std'] = daily_stats[s].shift(1).rolling(window=14).std()
+
+# Dynamic Upper Control Limit: 3 Standard Deviations
+daily_stats[f'{s}_threshold'] = daily_stats[f'{s}_mean'] + (3 * daily_stats[f'{s}_std']) 
+daily_stats[f'{s}_anomaly'] = (daily_stats[s] > daily_stats[f'{s}_threshold']) & (daily_stats[s] > 1)
+```
+
+4. **Extraction Resilience: The Crawl Fallback Mechanism**
+Extracting over 400,000 resources using the Bulk FHIR `$export` operation frequently exhausted the Java Heap space of the embedded H2 database, causing the Spring Batch job to freeze at "0 records processed". To ensure continuous data availability for the analysis layer, we engineered an asynchronous timeout protocol in `live_export.py`. If the bulk export API fails to return a processing location within the acceptable window, the script automatically triggers a `crawl_resources` fallback, iterating through standard REST API endpoints page-by-page. 
+
+```python
+# live_export.py: Automated fallback execution for database lockups
+def main():
+    status_url = trigger_export()
+    
+    if status_url == "FALLBACK":
+        print("⚠️ Bulk Export failed or timed out. Switching to Crawl Fallback...")
+        resources = crawl_resources()
+        smart_merge(resources)
+    elif status_url:
+        output_files = poll_status(status_url)
+        # Secondary fallback if the polling times out mid-batch
+        if output_files == "FALLBACK":
+            resources = crawl_resources()
+            smart_merge(resources)
+```
+
+5. **Data Ingestion: Two-Phase Multithreading Architecture**
+Attempting to upload the massive volume of synthetic bundles sequentially proved highly inefficient, yet deploying a naive multithreaded script resulted in `HAPI-1091` referential integrity errors (e.g., attempting to POST an Observation before its referenced Patient existed). 
+In `upload_bundles.py`, we resolved this by implementing a two-phase ingestion architecture. Foundational resources are priority-sorted and uploaded sequentially in Phase 1, creating a stable relational framework. Phase 2 then initializes a `ThreadPoolExecutor`, safely dispatching the heavy clinical bundles across multiple concurrent workers. 
+
+```python
+# upload_bundles.py: Phase 2 Multithreading logic
+print(f"\n--- Phase 2: Multithreading Clinical Bundles ({len(patient_files)} files) ---")
+max_workers = 8 
+
+with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    # Safely parallelize uploads only after foundational resources are committed
+    future_to_file = {executor.submit(process_single_file, f, path): f for f, path in patient_files}
+    
+    completed = 0
+    for future in as_completed(future_to_file):
+        completed += 1
+        f_name, ok, msg = future.result()
+```
+
+6. **HAPI FHIR Infrastructure Configuration**
+To simulate a high-throughput clinical repository capable of handling the Bulk FHIR `$export` operation without suffering from Java Virtual Machine (JVM) memory exhaustion, we had to explicitly configure the embedded database parameters. Relying on default configurations caused instability when querying the 400,000+ synthetic resources. We overrode the HAPI FHIR server's default state via a custom `docker-compose.yml` configuration, intentionally locking the heap size to 2GB (`-Xmx2g`) to balance memory stability with local hardware constraints, and mapping the deployment to an isolated port to prevent host-level allocation conflicts. 
+
+```yaml
+# docker-compose.yml: HAPI FHIR Server Configuration Snippet
+services:
+  hapi-fhir:
+    image: hapiproject/hapi:latest
+    ports:
+      - "8081:8080" # Re-routed to avoid local 8080 conflicts
+    environment:
+      # Critical: Locked JVM Heap to 2GB to maintain Bulk $export stability without overloading the host OS
+      - JAVA_OPTS=-Xmx2g 
+      - hapi.fhir.tester.home.name=Local Group 4 Syndromic DB
+      - hapi.fhir.tester.home.server_address=http://localhost:8081/fhir
+```
+
+7. **Syndromic Definition via CQL Logic Blocks**
+While the primary temporal aggregation (the 14-day 3-SD baseline) is executed in Python, the foundational definitions of the syndromes themselves are modeled using Clinical Quality Language (CQL). To proxy the upstream clinical decision support system, we authored strict CQL logic blocks that define what constitutes a specific cluster. For example, the `covid_logic.cql` file dictates that a patient must present with both a fever and a cough—mapped strictly to SNOMED-CT terminologies—to be flagged for the COVID-like illness extraction pipeline.
+
+```sql
+// covid_logic.cql: Rule-based syndromic definition block
+library CovidLogic version '1.0.0'
+using FHIR version '4.0.1'
+include FHIRHelpers version '4.0.1'
+
+// Define the standard terminologies required for the syndromic match
+valueset "COVID-19 Conditions": 'http://snomed.info/sct'
+code "Fever": '386661006' from "COVID-19 Conditions" display 'Fever'
+code "Cough": '49727002' from "COVID-19 Conditions" display 'Cough'
+
+// Logic Block: Evaluate if the patient's observations match the criteria
+define "Has Covid Symptoms":
+  exists (
+    [Observation: "Fever"] F
+      where F.status in {'final', 'amended'}
+  ) and exists (
+    [Observation: "Cough"] C
+      where C.status in {'final', 'amended'}
+  )
+```
+
+
+### CQL Rule-Based classification
+
+The CQL module served as the clinical reasoning layer of the system. Its purpose was to transform standardized FHIR `Observation` and `Condition` resources into computable infectious disease classification results. Instead of relying on free-text symptoms, the classification logic was based on standardized LOINC laboratory codes and SNOMED CT diagnosis codes.
+
+The rule source for the CQL logic was a rule-based infectious disease classification draft covering COVID-19, Dengue, and Influenza. The overall strategy was to prioritize LOINC laboratory results as the strongest evidence of active infection when the result was positive or detected. SNOMED CT diagnosis codes were used as supporting evidence when laboratory results were unavailable or incomplete. Antibody-only, post-infection, vaccination-related records, and panel-level codes without component-level results were excluded from acute infection classification.
+
+| Disease   | Main Classification Logic                                                                |
+| --------- | ---------------------------------------------------------------------------------------- |
+| COVID-19  | SARS-CoV-2 PCR/RNA positive, antigen positive, or COVID-related SNOMED diagnosis code    |
+| Dengue    | Dengue RNA positive, NS1 antigen positive, or Dengue-related SNOMED diagnosis code       |
+| Influenza | Influenza A/B RNA positive, antigen positive, or Influenza-related SNOMED diagnosis code |
+
+### Reproducibility
+
+To ensure academic transparency and eliminate environment drift, reproducibility was treated as a core architectural requirement. The pipeline achieves deterministic execution across independent deployment environments through three primary engineering controls:
+
+- Deterministic Dependency Management: The project utilizes `uv`, a high-performance Python package resolver, to lock the execution environment via a `pyproject.toml` and cryptographically hashed `uv.lock` file. This guarantees that critical data science libraries (such as `pandas` and `numpy`) execute the 3-SD rolling baseline math with absolute consistency, preventing runtime errors caused by local host configurations.
+- Infrastructure Containerization: The HAPI FHIR repository is strictly containerized and orchestrated via `docker-compose.yml`. To ensure stable execution and prevent Java Virtual Machine (JVM) memory exhaustion during the high-I/O bulk export phase, the deployment explicitly allocates a 2-gigabyte memory heap (`JAVA_OPTS=-Xmx2g`) to the container. This infrastructure-as-code approach ensures the embedded H2 database behaves predictably under massive payloads.
+- Data Provenance: The system evaluates a static, high-fidelity synthetic payload of over 400,000 FHIR R4 resources generated via the Synthea framework. This guarantees that specific simulated outbreaks (such as the COVID-like cluster identified on 2021-04-17) will trigger identically during any re-execution, allowing evaluators to verify the mathematical validity of the anomaly engine without requiring access to Protected Health Information (PHI).
+
+
+## FHIR Standard Utilized
+
+| Standard / Resource | Used for                                                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------------------------- |
+| CQL                 | Used to express rule-based disease classification logic                                                   |
+| LOINC               | Used to identify laboratory tests such as SARS-CoV-2 PCR, Dengue NS1 antigen, and Influenza A/B RNA tests |
+| SNOMED CT           | Used to represent diagnosis codes such as COVID-19 disease, Dengue disorder, and Influenza disorder       |
+| Observation         | Used as the FHIR resource containing laboratory test results                                              |
+| Condition           | Used as the FHIR resource containing diagnosis-based evidence                                             |
 
 ## Test Cases
 
-### 1. COVID-like Scenario
-*   **Input:** Patient with Temperature > 37.5°C and Cough Observation.
-*   **Result:** Correctly identified as "COVID-like" cluster. Anomaly detected on 2021-04-17 in the synthetic dataset.
+**Data**: 1K Sample Synthetic Patient Records (FHIR R4)
+**Data Source**:  https://synthea.mitre.org/downloads
 
-### 2. Dengue-like Scenario
-*   **Input:** Patient with Fever and Headache or Rash.
-*   **Result:** Mapped to "Dengue-like" cluster. System detected scattered occurrences across the longitudinal archive.
+Jason Walonoski, Mark Kramer, Joseph Nichols, Andre Quina, Chris Moesel, Dylan Hall, Carlton Duffett, Kudakwashe Dube, Thomas Gallagher, Scott McLachlan, Synthea: An approach, method, and software mechanism for generating synthetic patients and the synthetic electronic health care record, Journal of the American Medical Informatics Association, Volume 25, Issue 3, March 2018, Pages 230–238, https://doi.org/10.1093/jamia/ocx079
 
-### 3. Flu-like Scenario
-*   **Input:** Patient with Fever, Sore Throat, and Muscle Aches.
-*   **Result:** Mapped to "Flu-like" cluster, representing severe respiratory cases requiring closer monitoring.
 
 ## Conclusion & Future Policy Impact
-This prototype demonstrates that a "born digital" approach to clinical triage is not only feasible but essential for modern biosecurity. By aligning with the "TW Core" national data platform and future CDC automated reporting mandates, this system provides a blueprint for a unified, real-time national health surveillance ecosystem.
+This prototype demonstrates how standardized FHIR resources and CQL-based rule logic can support automated infectious disease surveillance. Although the current implementation uses synthetic data and simulated rules, it shows a feasible pathway from clinical data collection to population-level monitoring and public health alert generation. In the future, the system could be connected to real hospital triage data, official Taiwan Core profiles, validated disease case definitions, and formal public health reporting endpoints. 
 
-## Project Success Criteria
-The success of this implementation is measured by its ability to bridge the gap between individual clinical encounters and population-level situational awareness. The "One-Stop" architecture ensures that every clinical signal captured at the point of care is immediately available for AI-ready data aggregation, facilitating life-saving public health decisions.
+## Code Availability
+The source code used for FHIR ingestion, syndromic classification, and statistical analysis is available at: https://github.com/r14945024/EHR_Group4.git 
